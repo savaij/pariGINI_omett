@@ -1015,7 +1015,7 @@ st.header("Dove andate?")
 
 # carica bar
 try:
-    bars_map = load_bars_addresses("./bar_address.json")  # {"Nome bar": (lon, lat)}
+    bars_map = load_bars_addresses("bar_address.json")  # {"Nome bar": (lon, lat)}
 except Exception as e:
     st.error(f"Errore nel caricamento di bar_address.json: {e}")
     st.stop()
