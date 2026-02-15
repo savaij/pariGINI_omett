@@ -79,6 +79,29 @@
     border-radius: 0.2rem;
 }
 
+.image-box:hover {
+    border-color: var(--primary-color);
+    cursor: pointer;
+}
+
+.image:hover {
+    opacity: 1;
+    /* filter: brightness(1.1); */
+}
+
+
+.image-box.selected {
+    border-color: var(--primary-color);
+    border-width: 2px;
+    padding: 0.25rem;
+    /* box-shadow: rgb(255 75 75 / 50%) 0px 0px 0px 0.2rem; */
+}
+
+.image.selected {
+    opacity: 1;
+    /* filter: brightness(1.1); */
+}
+
 .caption {
     margin-top: 0.6rem;  /* un filo più aria sotto */
     font-weight: 600;
