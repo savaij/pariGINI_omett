@@ -1083,6 +1083,21 @@ if clicked:
     name_by_id = {i: bar_names[i] for i in range(len(bar_names))}
     metrics_df["bar_name"] = metrics_df["target_id"].map(name_by_id)
 
+        # --- Normalizza Gini (dividi per max) ---
+    if "gini_time" in metrics_df.columns:
+        try:
+             gmax = float(metrics_df["gini_time"].max(skipna=True))
+        except Exception:
+             gmax = np.nan
+
+        # if np.isfinite(gmax) and gmax > 0:
+        #     metrics_df["gini_time_norm"] = (metrics_df["gini_time"] / gmax).clip(0.0, 1.0)
+        # else:
+        #     # if all values equal or invalid, set normalized to 0.0 for defined values
+        #     metrics_df["gini_time_norm"] = metrics_df["gini_time"].apply(lambda v: 0.0 if (v is not None and not (isinstance(v, float) and np.isnan(v))) else np.nan)
+
+        st.session_state["bars_gini_max"] = gmax
+
     # --- ordine colonne ---
     cols_front = ["bar_name", "gini_time", "mean_time_min", "min_time_min", "max_time_min", "n_ok", "n_total"]
     cols_existing = [c for c in cols_front if c in metrics_df.columns]
@@ -1132,7 +1147,7 @@ if metrics_df is not None and len(metrics_df) > 0:
                 line-height: 1.15;
                 color: rgba(17,24,39,0.95);
             ">
-                Il bar con il minor gini index è:
+                Il bar dove vi conviene andare è:
                 <span style="
                     font-size: 34px;
                     font-weight: 950;
@@ -1178,19 +1193,30 @@ if metrics_df is not None and len(metrics_df) > 0:
         )
 
 
-    metrics_df_display = metrics_df.copy()[['bar_name', 'gini_time', 'mean_time_min']]
-    metrics_df_display = metrics_df_display.rename(columns={
-        'bar_name': 'Bar',
-        'gini_time': 'Gini',
-        'mean_time_min': 'Tempo Medio (min)',
-    })
+    # Show only normalized gini in display
+    if 'gini_time' in metrics_df.columns:
+        metrics_df_display = metrics_df.copy()[['bar_name', 'gini_time', 'mean_time_min']]
+        metrics_df_display = metrics_df_display.rename(columns={
+            'bar_name': 'Bar',
+            'gini_time': 'Gini',
+            'mean_time_min': 'Tempo Medio (min)',
+        })
+    else:
+        metrics_df_display = metrics_df.copy()[['bar_name', 'gini_time', 'mean_time_min']]
+        metrics_df_display = metrics_df_display.rename(columns={
+            'bar_name': 'Bar',
+            'gini_time': 'Gini',
+            'mean_time_min': 'Tempo Medio (min)',
+        })
     metrics_df_display['Bar'] = metrics_df_display['Bar'].str.title()
 
     st.dataframe(metrics_df_display, use_container_width=True, hide_index=True)
 
     if "gini_time" in metrics_df.columns:
         st.subheader("Confronto Gini per bar")
-        chart_df = metrics_df[["bar_name", "gini_time"]].set_index("bar_name")
+        # prefer normalized values for chart when available
+        if 'gini_time' in metrics_df.columns:
+            chart_df = metrics_df[["bar_name", "gini_time"]].set_index("bar_name")
         st.bar_chart(chart_df, height=320)
 
     # ============================================================
@@ -1242,7 +1268,9 @@ if metrics_df is not None and len(metrics_df) > 0:
 
         st.caption(f"Destinazione: **{st.session_state.picked_bar}**")
 
-        gini_value = float(metrics.get("gini_time", np.nan))
+        # normalize single-target gini using previously computed global min/max
+        gini_value = metrics.get("gini_time", None)
+
         render_gini_bar(gini_value)
 
         render_routes_html(results_df)
