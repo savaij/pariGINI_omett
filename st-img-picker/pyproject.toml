@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "st-img-picker"
+version = "1.0.2"
+description = "A Streamlit custom component for image selection with single and multi-selection support"
+authors = ["Peter van Lunteren"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "st_img_picker"}]
+# This is required so the frontend code is properly included in the wheel. 
+include = ["st_img_picker/frontend/build/**/*"]
+
+[tool.poetry.dependencies]
+python = "^3.8, !=3.9.7"
+streamlit = "^1.19.0"
+
+[tool.poetry.group.dev.dependencies]
+watchdog = "^2.1.9"
+black = "^22.6.0"
+isort = "^5.10.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
