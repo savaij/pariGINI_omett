@@ -136,6 +136,43 @@ def load_friends_addresses(path: str = "friends_address.json") -> dict:
 
 
 # ============================================================
+# BARS ADDRESSES (JSON)
+# ============================================================
+@st.cache_data(show_spinner=False)
+def load_bars_addresses(path: str = "bar_address.json") -> dict:
+    """
+    Atteso formato: {"nome_bar": [lat, lon]}
+    Ritorna dict: {"nome_bar": (lon, lat)}  <-- coerente col resto dell'app (x=lon, y=lat)
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    bars = {}
+    if not isinstance(raw, dict):
+        raise ValueError("bar_address.json deve contenere un oggetto JSON (dict) del tipo {'nome_bar':[lat,lon]}")
+
+    for name, coords in raw.items():
+        if not isinstance(name, str) or not name.strip():
+            continue
+        if (
+            not isinstance(coords, (list, tuple))
+            or len(coords) != 2
+            or coords[0] is None
+            or coords[1] is None
+        ):
+            continue
+
+        lat = float(coords[0])
+        lon = float(coords[1])
+        bars[name.strip()] = (lon, lat)
+
+    if not bars:
+        raise ValueError("bar_address.json non contiene bar validi (atteso {'nome_bar':[lat,lon]}).")
+
+    return bars
+
+
+# ============================================================
 # PAGE CONFIG (UNA SOLA VOLTA, SUBITO)
 # ============================================================
 st.set_page_config(
@@ -971,14 +1008,70 @@ starts = [friends_map[n] for n in st.session_state.selected_friends if n in frie
 # ============================================================
 # INPUT: TARGET
 # ============================================================
+# ============================================================
+# INPUT: TARGET (searchbox + quick pick bars da JSON) - ROBUSTO
+# ============================================================
 st.header("Dove andate?")
 
-_, target_coords = address_autocomplete(
+# carica bar
+try:
+    bars_map = load_bars_addresses("./bar_address.json")  # {"Nome bar": (lon, lat)}
+except Exception as e:
+    st.error(f"Errore nel caricamento di bar_address.json: {e}")
+    st.stop()
+
+# stato persistente del target
+if "target_coords" not in st.session_state:
+    st.session_state.target_coords = None  # (lon, lat)
+if "target_label" not in st.session_state:
+    st.session_state.target_label = None   # stringa (nome bar o indirizzo)
+if "target_source" not in st.session_state:
+    st.session_state.target_source = None  # "bar" | "search"
+
+# 1) Searchbox: continua a funzionare uguale
+selected_text, target_coords_from_search = address_autocomplete(
     label="",
     key="target",
     placeholder="Es: Tour Eiffel • Louvre • Châtelet • 20 Avenue de ... 750xx Paris",
 )
-target = target_coords
+
+# Se ho una selezione valida dalla searchbox, la salvo come target persistente
+if target_coords_from_search is not None:
+    st.session_state.target_coords = target_coords_from_search
+    st.session_state.target_label = selected_text
+    st.session_state.target_source = "search"
+
+st.caption("Oppure scegli un bar:")
+
+bar_names = list(bars_map.keys())
+
+vw = get_viewport_width()
+n_cols = 3 if vw < 900 else 4 if vw < 1200 else 5
+cols = st.columns(n_cols)
+
+for i, bn in enumerate(bar_names):
+    with cols[i % n_cols]:
+        is_active = (
+            st.session_state.target_source == "bar"
+            and st.session_state.target_label == bn
+        )
+        label = f"✓ {bn}" if is_active else bn
+
+        if st.button(label, key=f"bar_pick_{i}", use_container_width=True):
+            st.session_state.target_coords = bars_map.get(bn)
+            st.session_state.target_label = bn
+            st.session_state.target_source = "bar"
+            st.rerun()  # <-- rende immediato il tick
+
+# target finale (sempre persistente)
+target = st.session_state.target_coords
+
+# feedback UI
+if st.session_state.target_coords is not None:
+    if st.session_state.target_source == "bar":
+        st.caption(f"Destinazione: **{st.session_state.target_label}**")
+    else:
+        st.caption(f"Destinazione: **{st.session_state.target_label}**")
 
 # ============================================================
 # VALIDAZIONE (min 2 amici + target)
