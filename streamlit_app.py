@@ -176,7 +176,7 @@ def load_bars_addresses(path: str = "bar_address.json") -> dict:
 # PAGE CONFIG (UNA SOLA VOLTA, SUBITO)
 # ============================================================
 st.set_page_config(
-    page_title="pariGINI",
+    page_title="pariGINI omett",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
