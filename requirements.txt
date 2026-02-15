@@ -1,0 +1,8 @@
+streamlit 
+pandas
+numpy
+streamlit-searchbox
+geopandas
+networkx
+plotly
+-e ./st-img-picker
