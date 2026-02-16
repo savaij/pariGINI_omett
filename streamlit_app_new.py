@@ -607,7 +607,7 @@ def build_segments_for_friend(details):
     return segs
 
 
-def render_routes_html(results_df):
+def render_routes_html(results_df, friend_names=None):
     ok_df = results_df[results_df["ok"] == True].copy()
     if ok_df.empty:
         st.info("Nessun percorso disponibile da visualizzare.")
@@ -652,7 +652,10 @@ def render_routes_html(results_df):
 
     rows = []
     for i, total, segs in precomp:
-        name = f"Amico {i+1}"
+        if friend_names and 0 <= i < len(friend_names):
+            name = str(friend_names[i])
+        else:
+            name = f"Amic {i+1}"
         seg_html = ""
 
         for s in segs:
@@ -793,10 +796,10 @@ def gini_to_color_hex(v):
 
 
 def render_gini_bar(gini_value: float):
-    st.header("Indice di Gini (Disuguaglianza)")
+    st.header("Indice di Paris-Gini (Disuguaglianza)")
 
     if not np.isfinite(gini_value):
-        st.warning("Valore Gini non disponibile.")
+        st.warning("Valore Paris-Gini non disponibile.")
         return
 
     v = float(np.clip(gini_value, 0.0, 1.0))
@@ -879,8 +882,10 @@ st.markdown("<div class='pg-title'>pariGINI</div>", unsafe_allow_html=True)
 st.markdown(
     """
 I tuoi amici ti propongono un bar troppo lontano? Calcola quanto è equa la scelta.  
-Misura la disuguaglianza dei tempi di spostamento in metro usando il Gini Index.  
-Inserisci da dove partite (minimo 2 persone) e dove andate: il Gini viene calcolato automaticamente.
+Misura la disuguaglianza dei tempi di spostamento in metro usando il Paris-Gini Index.  
+Inserisci da dove partite (minimo 2 persone) e dove andate: il Paris-Gini viene calcolato automaticamente.
+
+Il Paris-Gini è un indice che si basa sull'indice di Gini ma considera anche la media dei tempi di spostamento. 
 """
 )
 
@@ -1037,10 +1042,14 @@ else:
 # ANALYSIS & RESULTS
 # ============================================================
 
-# Firma per capire se è cambiato l'input (amici selezionati)
-# (se vuoi più robusto includi anche max_line_changes ecc.)
-signature = tuple(st.session_state.selected_friends)  # oppure tuple(starts)
-
+# Firma per capire se è cambiato l'input (amici + targets selezionati)
+# (per robustezza includo anche i parametri di routing)
+signature = (
+    tuple(starts),
+    tuple(targets),
+    int(max_line_changes),
+    float(change_penalty_min),
+)
 
 prev_sig = st.session_state.get("bars_metrics_signature", None)
 
@@ -1048,6 +1057,7 @@ if prev_sig != signature:
     st.session_state["bars_metrics_df"] = None
     st.session_state["bars_metrics_signature"] = signature
     st.session_state["picked_bar"] = None
+    st.session_state["bars_per_target_results"] = None
 
 clicked = st.button(
     "CONFRONTA BAR",
@@ -1072,31 +1082,30 @@ if clicked:
                 max_walk_min_end=15.0,
                 max_candidate_stations=25,
                 allow_walk_only=True,
-                keep_details=False,
-                return_per_target_df=False,
+                keep_details=True,
+                return_per_target_df=True,
             )
         except Exception as e:
             st.error(f"Errore nel calcolo multi-target: {e}")
             st.stop()
 
+    metrics_df, per_target_results = metrics_df
+
     # --- aggancia nomi bar ---
+    # Se hai già bar_names (lista) e bars_map (dict nome->coords) fuori da qui,
+    # allora la mappatura corretta è per target_id.
+    bar_names = list(bars_map.keys())
     name_by_id = {i: bar_names[i] for i in range(len(bar_names))}
     metrics_df["bar_name"] = metrics_df["target_id"].map(name_by_id)
 
-        # --- Normalizza Gini (dividi per max) ---
-    if "gini_time" in metrics_df.columns:
-        try:
-             gmax = float(metrics_df["gini_time"].max(skipna=True))
-        except Exception:
-             gmax = np.nan
+    # --- normalizza rispetto alla media delle medie dei tempi ---
+    if "mean_time_min" in metrics_df.columns and metrics_df["mean_time_min"].notna().any():
+        mean_of_means = float(metrics_df["mean_time_min"].mean(skipna=True))
+        if np.isfinite(mean_of_means) and mean_of_means > 0:
+            if "gini_time" in metrics_df.columns:
+                metrics_df["gini_time"] = metrics_df["gini_time"] / mean_of_means
+                metrics_df["gini_time"] = metrics_df["gini_time"].clip(0.0, 1.0)
 
-        # if np.isfinite(gmax) and gmax > 0:
-        #     metrics_df["gini_time_norm"] = (metrics_df["gini_time"] / gmax).clip(0.0, 1.0)
-        # else:
-        #     # if all values equal or invalid, set normalized to 0.0 for defined values
-        #     metrics_df["gini_time_norm"] = metrics_df["gini_time"].apply(lambda v: 0.0 if (v is not None and not (isinstance(v, float) and np.isnan(v))) else np.nan)
-
-        st.session_state["bars_gini_max"] = gmax
 
     # --- ordine colonne ---
     cols_front = ["bar_name", "gini_time", "mean_time_min", "min_time_min", "max_time_min", "n_ok", "n_total"]
@@ -1110,13 +1119,14 @@ if clicked:
 
     # salva in sessione
     st.session_state.bars_metrics_df = metrics_df
+    st.session_state.bars_per_target_results = per_target_results
 
     # set default picked bar (il migliore)
     if len(metrics_df):
         st.session_state.picked_bar = metrics_df.iloc[0]["bar_name"]
 
 # Se ho risultati salvati, li mostro (anche dopo rerun!)
-metrics_df = st.session_state.bars_metrics_df
+metrics_df = st.session_state.get("bars_metrics_df", None)
 if metrics_df is not None and len(metrics_df) > 0:
     st.divider()
 
@@ -1128,10 +1138,9 @@ if metrics_df is not None and len(metrics_df) > 0:
     # --- TOP INFO: mostra subito il bar col Gini minimo ---
     if "gini_time" in metrics_df.columns and metrics_df["gini_time"].notna().any():
         best_row = metrics_df.loc[metrics_df["gini_time"].idxmin()]
-        best_name = best_row["bar_name"].title()
+        best_name = str(best_row["bar_name"]).title()
         best_gini = float(best_row["gini_time"])
 
-        # Banner grande e visibile (hero)
         st.markdown(
             f"""
             <div style="
@@ -1192,32 +1201,18 @@ if metrics_df is not None and len(metrics_df) > 0:
             unsafe_allow_html=True,
         )
 
-
-    # Show only normalized gini in display
-    if 'gini_time' in metrics_df.columns:
-        metrics_df_display = metrics_df.copy()[['bar_name', 'gini_time', 'mean_time_min']]
-        metrics_df_display = metrics_df_display.rename(columns={
-            'bar_name': 'Bar',
-            'gini_time': 'Gini',
-            'mean_time_min': 'Tempo Medio (min)',
-        })
-    else:
-        metrics_df_display = metrics_df.copy()[['bar_name', 'gini_time', 'mean_time_min']]
-        metrics_df_display = metrics_df_display.rename(columns={
-            'bar_name': 'Bar',
-            'gini_time': 'Gini',
-            'mean_time_min': 'Tempo Medio (min)',
-        })
-    metrics_df_display['Bar'] = metrics_df_display['Bar'].str.title()
+    # tabella display
+    cols_needed = [c for c in ["bar_name", "gini_time", "mean_time_min"] if c in metrics_df.columns]
+    metrics_df_display = metrics_df.copy()[cols_needed].rename(
+        columns={
+            "bar_name": "Bar",
+            "gini_time": "Gini",
+            "mean_time_min": "Tempo Medio (min)",
+        }
+    )
+    metrics_df_display["Bar"] = metrics_df_display["Bar"].astype(str).str.title()
 
     st.dataframe(metrics_df_display, use_container_width=True, hide_index=True)
-
-    if "gini_time" in metrics_df.columns:
-        st.subheader("Confronto Gini per bar")
-        # prefer normalized values for chart when available
-        if 'gini_time' in metrics_df.columns:
-            chart_df = metrics_df[["bar_name", "gini_time"]].set_index("bar_name")
-        st.bar_chart(chart_df, height=320)
 
     # ============================================================
     # DRILL-DOWN (persistente)
@@ -1225,8 +1220,7 @@ if metrics_df is not None and len(metrics_df) > 0:
     st.subheader("Dettaglio di un bar")
 
     options = list(metrics_df["bar_name"])
-    # scegli indice in base al valore in session_state
-    cur = st.session_state.picked_bar
+    cur = st.session_state.get("picked_bar", None)
     if cur not in options:
         cur = options[0]
         st.session_state.picked_bar = cur
@@ -1236,10 +1230,9 @@ if metrics_df is not None and len(metrics_df) > 0:
         "Seleziona un bar",
         options=options,
         index=cur_index,
-        key="picked_bar_selectbox",  # key diverso da st.session_state.picked_bar
+        key="picked_bar_selectbox",
     )
 
-    # aggiorna session_state quando cambia
     if picked_bar != st.session_state.picked_bar:
         st.session_state.picked_bar = picked_bar
 
@@ -1247,33 +1240,26 @@ if metrics_df is not None and len(metrics_df) > 0:
     if picked_coords is None:
         st.warning("Coordinate del bar non trovate.")
     else:
-        with st.spinner(f"Calcolo dettagli percorso verso: {st.session_state.picked_bar} ..."):
-            try:
-                results_df, metrics = accessibility_inequality_to_target(
-                    G,
-                    starts,
-                    picked_coords,
-                    node_index=node_index,
-                    max_line_changes=max_line_changes,
-                    change_penalty_min=change_penalty_min,
-                    max_walk_min_start=15.0,
-                    max_walk_min_end=15.0,
-                    max_candidate_stations=25,
-                    allow_walk_only=True,
-                    keep_details=True,
-                )
-            except Exception as e:
-                st.error(f"Errore nel calcolo dettagli: {e}")
-                st.stop()
+        per_target_results = st.session_state.get("bars_per_target_results") or {}
+        target_row = metrics_df.loc[metrics_df["bar_name"] == st.session_state.picked_bar]
+
+        if target_row.empty:
+            st.warning("Metriche del bar non trovate nei risultati del confronto.")
+            st.stop()
+
+        target_id = int(target_row.iloc[0]["target_id"])
+        results_df = per_target_results.get(target_id)
+        metrics = target_row.iloc[0].to_dict()
+
+        if results_df is None:
+            st.warning("Dettagli percorso non disponibili per questo bar.")
+            st.stop()
 
         st.caption(f"Destinazione: **{st.session_state.picked_bar}**")
 
-        # normalize single-target gini using previously computed global min/max
         gini_value = metrics.get("gini_time", None)
-
         render_gini_bar(gini_value)
-
-        render_routes_html(results_df)
+        render_routes_html(results_df, friend_names=st.session_state.get("selected_friends"))
 
         st.subheader("Statistiche tempi di percorrenza")
         c1, c2, c3 = st.columns(3)
