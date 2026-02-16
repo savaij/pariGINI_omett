@@ -637,7 +637,7 @@ def accessibility_inequality_to_target(
         "p90_time_min": float(np.percentile(valid_times, 90)) if valid_times.size else np.nan,
         "min_time_min": float(np.min(valid_times)) if valid_times.size else np.nan,
         "max_time_min": float(np.max(valid_times)) if valid_times.size else np.nan,
-        "gini_time": gini_coefficient(valid_times, normalize=True, square_x=True),
+        "gini_time": gini_coefficient(valid_times, normalize=True, square_x=True, balance_time=True),
         "theil_time": theil_index(valid_times),
     }
 
